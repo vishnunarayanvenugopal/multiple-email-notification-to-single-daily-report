@@ -1,11 +1,11 @@
 // Configuration Variables
 
-var sheetID = "1i32e3PAGZaOVqrTidYUKbiCVNPtYqI0fTeIzr8B6Zrw";
+var sheetID = "1vAX2P-kQ3P1YI3z4aENxSdvaEqtRsr57BN_LSuu_4Ws";
 var timeZone = "America/New_York";
 
 // Debugging Purposes
 var sheetIDDebugLogs = "1sBOrJ_0e8Kzv0R8rwJz5FAu1nGsGaSMYsiHHKnF6DMY";
-var developerEmail = "xxxxx@gmail.com";
+var developerEmail = "xxxx@gmail.com";
 
 //Sheet Configs
 var input = SpreadsheetApp.openById(sheetID).getSheets()[0].getRange("A2:B").getValues().filter(String);
@@ -28,14 +28,48 @@ const runByDate = inputJSON["Run By Date"];
 //Setting Time and formatting
 if (runByDate) {
 	console.log("run by date is :- " + runByDate)
+
 	var today = new Date(runByDate);
+  var tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+
+  if (tomorrow.getMonth() !== today.getMonth()) {
+    tomorrow.setDate(1); // Set the day to 1 to handle month rollover
+    tomorrow.setMonth(today.getMonth() + 1); // Move to the next month
+
+    // Check if the next month is in the next year
+    if (tomorrow.getMonth() === 0) {
+      tomorrow.setYear(today.getFullYear() + 1); // Move to the next year
+    }
+  }
+
+  console.log("tommorow is"+tomorrow);
+
 	SpreadsheetApp.openById(sheetID).getSheets()[0].getRange("B6").setValue("");
 } else {
 	var today = new Date();
+
+  var tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+
+  if (tomorrow.getMonth() !== today.getMonth()) {
+    tomorrow.setDate(1); // Set the day to 1 to handle month rollover
+    tomorrow.setMonth(today.getMonth() + 1); // Move to the next month
+
+    // Check if the next month is in the next year
+    if (tomorrow.getMonth() === 0) {
+      tomorrow.setYear(today.getFullYear() + 1); // Move to the next year
+    }
+  }
+
+  console.log("tommorow is"+tomorrow);
 }
 
 console.log(today);
+
 formattedTime = Utilities.formatDate(today, timeZone, "yyyy-MM-dd");
+formattedTommorrow = Utilities.formatDate(tomorrow, timeZone, "yyyy-MM-dd");
+
 console.log(formattedTime);
 
 outputCreateSheet = createGoogleSheetInFolder(folderId, formattedTime);
@@ -58,7 +92,7 @@ function rUNTHIS() {
 		sendEmailWithTable();
 	} catch (error) {
 
-		debugSheet.appendRow([error.message]);
+		debugSheet.appendRow([error.message,formattedTime]);
 
 		MailApp.sendEmail({
 			to: developerEmail,
@@ -74,8 +108,11 @@ function getEmailsAndStoreInSheet() {
 
 	var errorFlag = 0;
 
-	var threads = GmailApp.search("after:" + formattedTime + " from:" + emailToFilter);
-	//var threads = GmailApp.search("from:" + emailToFilter);
+	var threads = GmailApp.search("after:" + formattedTime +" before:"+ formattedTommorrow +" from:" + emailToFilter);
+
+  console.log("Searching Emails for ...");
+  console.log("after:" + formattedTime +" before:"+ formattedTommorrow +" from:" + emailToFilter);
+
 	sheetToUse.appendRow(["Formatted Date", "Timestamp", "Task Name", "Owner", "Notes", "Link"]);
 	// Iterate through threads and messages
 
@@ -95,9 +132,18 @@ function getEmailsAndStoreInSheet() {
 				if (body.indexOf("https://clickup.com/") !== -1) {
 
 					var link = body.match(/https:\/\/app\.clickup\.com\/\S+/)[0].replace('"', "").replace("&amp;", "&");
-					var whoDid = body.match(/">by (.*?)<\/p>/)[1];
-					var content = body.match(/">by(.*?)<\/p>[\s\S]*?">Replies to this email will be added as comments<\/p>/)[0].replace("Replies to this email will be added as comments", "");
 
+          if(body.match(/">by (.*?)<\/p>/))
+          {
+            var whoDid = body.match(/">by (.*?)<\/p>/)[1];
+            var content = body.match(/">by(.*?)<\/p>[\s\S]*?">Replies to this email will be added as comments<\/p>/)[0].replace("Replies to this email will be added as comments", "").replace('">','');
+          }
+          else
+          {
+            var whoDid="NA"
+            var content = body.match(/">(.*?)<\/p>[\s\S]*?">Replies to this email will be added as comments<\/p>/)[0].replace("Replies to this email will be added as comments", "").replace('">','');
+          }
+					
 					//sheetToUse.appendRow([body]);
 					content = removeUnwantedText(content);
 
@@ -110,7 +156,7 @@ function getEmailsAndStoreInSheet() {
 
 			} catch (error) {
 				console.log("Met With an Error - Reported to developer with logs")
-				debugSheet.appendRow([body, error.message]);
+				debugSheet.appendRow([body,date, error.message]);
 				Logger.log("An error occurred: " + error.message);
 
 				errorFlag = 1;
