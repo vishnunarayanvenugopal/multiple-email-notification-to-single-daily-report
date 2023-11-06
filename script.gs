@@ -1,10 +1,15 @@
 // Configuration Variables
 
-var sheetID = "1vAX2P-kQ3P1YI3z4aENxSdvaEqtRsr57BN_LSuu_4Ws";
+var sheetID = "1i32e3PAGZaOVqrTidYUKbiCVNPtYqI0fTeIzr8B6Zrw";
 var timeZone = "America/New_York";
+
+// Debugging Purposes
+var sheetIDDebugLogs = "1sBOrJ_0e8Kzv0R8rwJz5FAu1nGsGaSMYsiHHKnF6DMY";
+var developerEmail = "xxxxx@gmail.com";
 
 //Sheet Configs
 var input = SpreadsheetApp.openById(sheetID).getSheets()[0].getRange("A2:B").getValues().filter(String);
+var debugSheet = SpreadsheetApp.openById(sheetIDDebugLogs).getSheets()[0]
 
 //input variables
 var input = input.filter(function(row) {
@@ -18,9 +23,17 @@ const emailToFilter = inputJSON["Email To Filter"];
 const emailToNotify = inputJSON["Email To Notify"];
 const labelName = inputJSON["Label Name"];
 const folderId = inputJSON["GDrive FolderID"];
+const runByDate = inputJSON["Run By Date"];
 
 //Setting Time and formatting
-var today = new Date();
+if (runByDate) {
+	console.log("run by date is :- " + runByDate)
+	var today = new Date(runByDate);
+	SpreadsheetApp.openById(sheetID).getSheets()[0].getRange("B6").setValue("");
+} else {
+	var today = new Date();
+}
+
 console.log(today);
 formattedTime = Utilities.formatDate(today, timeZone, "yyyy-MM-dd");
 console.log(formattedTime);
@@ -29,7 +42,6 @@ outputCreateSheet = createGoogleSheetInFolder(folderId, formattedTime);
 
 var sheetToUse = SpreadsheetApp.openById(outputCreateSheet[0]).getSheets()[0];
 var reportSheetUrl = outputCreateSheet[1];
-
 
 //Archive Manage Code
 
@@ -41,40 +53,81 @@ if (!archiveLabel) {
 
 // Run this function to retrieve and store the emails
 function rUNTHIS() {
-	getEmailsAndStoreInSheet();
-	sendEmailWithTable();
+	try {
+		getEmailsAndStoreInSheet();
+		sendEmailWithTable();
+	} catch (error) {
+
+		debugSheet.appendRow([error.message]);
+
+		MailApp.sendEmail({
+			to: developerEmail,
+			subject: "Critical : Met Error Automation Script (General Run this error) : Clickup Sheet Summary",
+			htmlBody: error.message,
+		});
+
+
+	}
 }
 
 function getEmailsAndStoreInSheet() {
+
+	var errorFlag = 0;
 
 	var threads = GmailApp.search("after:" + formattedTime + " from:" + emailToFilter);
 	//var threads = GmailApp.search("from:" + emailToFilter);
 	sheetToUse.appendRow(["Formatted Date", "Timestamp", "Task Name", "Owner", "Notes", "Link"]);
 	// Iterate through threads and messages
+
+
 	for (var i = 0; i < threads.length; i++) {
 		var messages = threads[i].getMessages();
 
 		for (var j = 0; j < messages.length; j++) {
-			var message = messages[j];
-			var date = message.getDate();
-			var subject = message.getSubject();
-			var plainbody = message.getPlainBody();
-			var body = message.getBody();
-			if (body.indexOf("https://clickup.com/") !== -1) {
 
-				var link = body.match(/https:\/\/app\.clickup\.com\/\S+/)[0].replace('"', "").replace("&amp;", "&");
-				var whoDid = body.match(/">by (.*?)<\/p>/)[1];
-				var content = body.match(/">@(.*?)<\/tbody>/)[1];
+			try {
 
-				sheetToUse.appendRow([formattedTime, date, subject, whoDid, htmlToPlainText(content), link]);
-				sheetToUse.getRange("A2:A").setNumberFormat('@');
+				var message = messages[j];
+				var date = message.getDate();
+				var subject = message.getSubject();
+				var plainbody = message.getPlainBody();
+				var body = message.getBody();
+				if (body.indexOf("https://clickup.com/") !== -1) {
 
-				threads[i].addLabel(archiveLabel);
-				threads[i].moveToArchive();
+					var link = body.match(/https:\/\/app\.clickup\.com\/\S+/)[0].replace('"', "").replace("&amp;", "&");
+					var whoDid = body.match(/">by (.*?)<\/p>/)[1];
+					var content = body.match(/">by(.*?)<\/p>[\s\S]*?">Replies to this email will be added as comments<\/p>/)[0].replace("Replies to this email will be added as comments", "");
+
+					//sheetToUse.appendRow([body]);
+					content = removeUnwantedText(content);
+
+					sheetToUse.appendRow([formattedTime, date, subject, whoDid, htmlToPlainText(content), link]);
+					sheetToUse.getRange("A2:A").setNumberFormat('@');
+
+					threads[i].addLabel(archiveLabel);
+					threads[i].moveToArchive();
+				}
+
+			} catch (error) {
+				console.log("Met With an Error - Reported to developer with logs")
+				debugSheet.appendRow([body, error.message]);
+				Logger.log("An error occurred: " + error.message);
+
+				errorFlag = 1;
+
 			}
 		}
 
 	}
+
+	if (errorFlag == 1) {
+		MailApp.sendEmail({
+			to: developerEmail,
+			subject: "Warning : Single/Multiple Errors in getEmailsAndStoreInSheet : Clickup Sheet Summary",
+			htmlBody: "Check the debug sheet for details",
+		});
+	}
+
 	customSheetFormat(sheetToUse);
 }
 
@@ -129,19 +182,15 @@ function sendEmailWithTable() {
 function createGoogleSheetInFolder(folderId, sheetname) {
 
 	output = []
-	// Find the target folder by name
 	var folder = DriveApp.getFolderById(folderId);
 
-	// Create a new Google Sheet
 	var sheet = SpreadsheetApp.create(sheetname);
 
-	// Move the newly created Google Sheet to the target folder
 	DriveApp.getFileById(sheet.getId()).moveTo(folder);
 
 	output.push(sheet.getId());
 	output.push(sheet.getUrl());
 
-	// Return the Google Sheet ID
 	return output;
 }
 
@@ -172,7 +221,6 @@ function arrayToJsonObject(data) {
 function customSheetFormat(sheet) {
 	var range = sheet.getDataRange();
 
-	// Apply multiple formatting in a single batch update
 	range.setWrap(true);
 	range.setBorder(true, true, true, true, true, true);
 
@@ -181,4 +229,22 @@ function customSheetFormat(sheet) {
 	firstRow.setHorizontalAlignment("center");
 
 	Logger.log("Sheet formatting complete.");
+}
+
+function removeUnwantedText(text) {
+	text = text.replace(/&nbsp;/g, ' ').replace(/&gt;/g, '>');
+	var lines = text.split('\n');
+	var filteredLines = lines.filter(function(line) {
+		return line.trim() !== '';
+	});
+	var filteredText = filteredLines.join('\n').replace(/\s+/g, ' ').trim();
+	return filteredText;
+}
+
+function getLineNumber() {
+	try {
+		throw new Error();
+	} catch (e) {
+		return e.lineNumber;
+	}
 }
