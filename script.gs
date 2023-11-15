@@ -1,10 +1,10 @@
 // Configuration Variables
 
-var sheetID = "1vAX2P-kQ3P1YI3z4aENxSdvaEqtRsr57BN_LSuu_4Ws";
+var sheetID = "dummyID";
 var timeZone = "America/New_York";
 
 // Debugging Purposes
-var sheetIDDebugLogs = "1sBOrJ_0e8Kzv0R8rwJz5FAu1nGsGaSMYsiHHKnF6DMY";
+var sheetIDDebugLogs = "dummyID";
 var developerEmail = "xxxx@gmail.com";
 
 //Sheet Configs
@@ -126,6 +126,7 @@ function getEmailsAndStoreInSheet() {
 
 				var message = messages[j];
 				var date = message.getDate();
+        var formattedEmailDate = Utilities.formatDate(date, timeZone, "yyyy-MM-dd");
 				var subject = message.getSubject();
 				var plainbody = message.getPlainBody();
 				var body = message.getBody();
@@ -136,7 +137,7 @@ function getEmailsAndStoreInSheet() {
           if(body.match(/">by (.*?)<\/p>/))
           {
             var whoDid = body.match(/">by (.*?)<\/p>/)[1];
-            var content = body.match(/">by(.*?)<\/p>[\s\S]*?">Replies to this email will be added as comments<\/p>/)[0].replace("Replies to this email will be added as comments", "").replace('">','');
+            var content = body.match(/">by(.*?)<\/p>[\s\S]*?">Replies to this email will be added as comments<\/p>/)[0].replace("Replies to this email will be added as comments", "").replace(/">by(.*?)<\/p>/,'');
           }
           else
           {
@@ -145,10 +146,14 @@ function getEmailsAndStoreInSheet() {
           }
 					
 					//sheetToUse.appendRow([body]);
-					content = removeUnwantedText(content);
+					content = removeUnwantedText(htmlToPlainText(content));
 
-					sheetToUse.appendRow([formattedTime, date, subject, whoDid, htmlToPlainText(content), link]);
-					sheetToUse.getRange("A2:A").setNumberFormat('@');
+          if(formattedTime==formattedEmailDate && returnFilteredEmail(body,link))
+          {
+            sheetToUse.appendRow([formattedTime, date, subject, whoDid, htmlToPlainText(content), link]);
+          }
+
+					
 
 					threads[i].addLabel(archiveLabel);
 					threads[i].moveToArchive();
@@ -175,11 +180,33 @@ function getEmailsAndStoreInSheet() {
 	}
 
 	customSheetFormat(sheetToUse);
+  sheetToUse.getRange("A2:A").setNumberFormat('@');
+}
+
+function returnFilteredEmail(emailBody,link)
+{
+  if(link.includes("=assignee_add") && emailBody.includes("Assigned to You"))
+  {
+    return false
+  }
+  else if(link.includes("=comment") && emailBody.includes("New comment"))
+  {
+    return false
+  }
+  else if(link.includes("=reaction") && emailBody.includes("liked your comment"))
+  {
+    return false
+  }
+  else
+  {
+    return true
+  }
+  
 }
 
 function htmlToPlainText(html) {
 	// Remove HTML tags using a regular expression
-	var plainText = html.replace(/<[^>]+>/g, '');
+	var plainText = html.replace(/<[^>]+>/g, ' ');
 
 	// Replace common HTML entities with their plain text equivalents
 	plainText = plainText.replace(/</g, '<');
@@ -278,13 +305,24 @@ function customSheetFormat(sheet) {
 }
 
 function removeUnwantedText(text) {
-	text = text.replace(/&nbsp;/g, ' ').replace(/&gt;/g, '>');
-	var lines = text.split('\n');
-	var filteredLines = lines.filter(function(line) {
-		return line.trim() !== '';
-	});
-	var filteredText = filteredLines.join('\n').replace(/\s+/g, ' ').trim();
-	return filteredText;
+  //console.log(text);
+  var cleanedText = text.replace(/\n{2,}/g, '\n');
+  var cleanedText = cleanedText.replace(/\s{5,}/g, ' ');
+  var cleanedText = cleanedText.replace(/[\r\s]+/g, ' ');
+  
+	cleanedText = cleanedText.replace(/&nbsp;/g, ' ')
+                           .replace(/&gt;/g, '>')
+                           .replace(/&#x2F;/g, '/')
+                           .replace(/&#x27;/g, "'")
+                           .replace(/&amp;/g, '&')
+                           .replace(/&#x3D;/g, '=')  // Replace equals (=)
+                           .replace(/&#x3A;/g, ':')  // Replace colons (:)
+                           .replace(/&#x2E;/g, '.')  // Replace periods (.)
+                           .replace(/&#x2C;/g, ',')  // Replace commas (,)
+                           .replace(/&#x20;/g, ' ');  // Replace spaces ( );
+
+  console.log(cleanedText);
+	return cleanedText;
 }
 
 function getLineNumber() {
